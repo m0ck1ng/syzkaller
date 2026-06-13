@@ -6,6 +6,7 @@ package vminfo
 import (
 	"bytes"
 	"fmt"
+	"math/rand"
 	"os"
 	"regexp"
 	"strconv"
@@ -107,6 +108,8 @@ var linuxSyscallChecks = map[string]func(*checkContext, *prog.Syscall) string{
 	"syz_pidfd_open":                alwaysSupported,
 	"syz_create_resource":           alwaysSupported,
 	"syz_kfuzztest_run":             alwaysSupported,
+	"syz_write_attr":                linuxSyzWriteAttrSupported,
+	"syz_write_attr_fd":             linuxSyzWriteAttrSupported,
 }
 
 func linuxSyzOpenDevSupported(ctx *checkContext, call *prog.Syscall) string {
@@ -331,6 +334,59 @@ func linuxWifiEmulationSupported(ctx *checkContext, call *prog.Syscall) string {
 	}
 	// We use HWSIM_ATTR_PERM_ADDR which was added in 4.17.
 	return linuxRequireKernel(ctx, 4, 17)
+}
+
+func linuxSyzWriteAttrSupported(ctx *checkContext, call *prog.Syscall) string {
+	if call.Attrs.Automatic {
+		return ""
+	}
+	// Support both string[...] (BufferString) and glob[...] (BufferGlob) as the path argument.
+	if fname, ok := extractStringConst(call.Args[0].Type, call.Attrs.Automatic); ok {
+		return linuxSyzWriteAttrCheckPath(ctx, fname)
+	}
+	if fname, ok := extractGlobPattern(call.Args[0].Type); ok {
+		return linuxSyzWriteAttrCheckPath(ctx, fname)
+	}
+	return "cannot extract sysfs path"
+}
+
+// extractGlobPattern returns a random (include) pattern from a ptr[in, glob[...]] argument.
+func extractGlobPattern(typ prog.Type) (string, bool) {
+	ptr, ok := typ.(*prog.PtrType)
+	if !ok {
+		return "", false
+	}
+	buf, ok := ptr.Elem.(*prog.BufferType)
+	if !ok || buf.Kind != prog.BufferGlob {
+		return "", false
+	}
+	// SubKind holds the raw pattern, e.g. "/sys/fs/f2fs/*/blkzone_alloc_policy"
+	// or "/sys/**/*:-/sys/power/state" (include:exclude form); collect all include tokens.
+	var includes []string
+	for _, tok := range strings.Split(buf.SubKind, ":") {
+		if tok != "" && tok[0] != '-' {
+			includes = append(includes, tok)
+		}
+	}
+	if len(includes) == 0 {
+		return "", false
+	}
+	return includes[rand.Intn(len(includes))], true
+}
+
+// linuxSyzWriteAttrCheckPath checks reachability of a sysfs path or pattern.
+func linuxSyzWriteAttrCheckPath(ctx *checkContext, fname string) string {
+	if strings.Contains(fname, "*") {
+		// Wildcard-backed attributes depend on runtime-created devices,
+		// so only check that the stable prefix is reachable.
+		star := strings.Index(fname, "*")
+		dir := fname[:strings.LastIndex(fname[:star+1], "/")+1]
+		if dir == "" {
+			return ""
+		}
+		return ctx.canOpen(dir)
+	}
+	return ctx.canWrite(fname)
 }
 
 func linuxRequireKernel(ctx *checkContext, major, minor int) string {

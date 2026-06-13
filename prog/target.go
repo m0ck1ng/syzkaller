@@ -426,7 +426,7 @@ func (target *Target) UpdateGlobs(globFiles map[string][]string) {
 func requiredGlobs(pattern string) []string {
 	var res []string
 	for _, tok := range strings.Split(pattern, ":") {
-		if tok[0] != '-' {
+		if tok != "" && tok[0] != '-' {
 			res = append(res, tok)
 		}
 	}
@@ -437,14 +437,14 @@ func populateGlob(pattern string, globFiles map[string][]string) []string {
 	files := make(map[string]bool)
 	parts := strings.Split(pattern, ":")
 	for _, tok := range parts {
-		if tok[0] != '-' {
+		if tok != "" && tok[0] != '-' {
 			for _, file := range globFiles[tok] {
 				files[file] = true
 			}
 		}
 	}
 	for _, tok := range parts {
-		if tok[0] == '-' {
+		if tok != "" && tok[0] != '-' {
 			delete(files, tok[1:])
 		}
 	}

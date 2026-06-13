@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/google/syzkaller/pkg/ast"
 	"github.com/google/syzkaller/prog"
@@ -725,10 +726,14 @@ var typeString = &typeDesc{
 		}
 		if len(args) > 0 && t.Ident == glob {
 			base.TypeSize = 0
+			pattern := args[0].String
+ 		    if !args[0].HasString && args[0].Ident != "" {
+		        pattern = strings.Join(genStrArray(comp.strFlags[args[0].Ident].Values), ":")
+		    }
 			return &prog.BufferType{
 				TypeCommon: base.TypeCommon,
 				Kind:       prog.BufferGlob,
-				SubKind:    args[0].String,
+				SubKind:    pattern,
 				NoZ:        false,
 			}
 		}

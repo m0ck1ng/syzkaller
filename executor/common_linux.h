@@ -2463,6 +2463,67 @@ static long syz_open_dev(volatile long a0, volatile long a1, volatile long a2)
 }
 #endif
 
+#if SYZ_EXECUTOR || __NR_syz_write_attr || __NR_syz_write_attr_fd
+#include <fcntl.h>
+#include <glob.h>
+#include <limits.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+static long syz_write_attr_impl(volatile long a0, volatile long a1, volatile long a2)
+{
+        // syz_write_attr(dev_attr ptr[in, string[...]/glob[...]], buf ptr[in, ...], len bytesize[buf])
+        // string[...]: a0 is a literal glob pattern (may contain '*'), expanded at runtime.
+        // glob[...]:   a0 is a concrete path pre-resolved by the fuzzer, opened directly.
+        if (a0 == 0 || a2 < 0 || (a1 == 0 && a2 != 0) || (unsigned long)a2 > SSIZE_MAX)
+                return -1;
+
+        int fd;
+        if (strchr((char*)a0, '*')) {
+                // string[...] type: expand the wildcard pattern and pick one match at random.
+                glob_t g;
+                if (glob((char*)a0, GLOB_NOSORT, NULL, &g) != 0)
+                        return -1;
+                if (g.gl_pathc == 0) {
+                        globfree(&g);
+                        return -1;
+                }
+                fd = open(g.gl_pathv[rand() % g.gl_pathc], O_WRONLY | O_CLOEXEC);
+                globfree(&g);
+        } else {
+                // glob[...] type: path already resolved to a concrete file by the fuzzer.
+                fd = open((char*)a0, O_WRONLY | O_CLOEXEC);
+        }
+        if (fd == -1)
+                return -1;
+
+        // Sysfs/procfs attributes generally expect a single write transaction.
+        long ret = write(fd, (char*)a1, (size_t)a2);
+        close(fd);
+        return ret;
+}
+
+#endif
+
+#if SYZ_EXECUTOR || __NR_syz_write_attr
+static long syz_write_attr(volatile long a0, volatile long a1, volatile long a2)
+{
+        return syz_write_attr_impl(a0, a1, a2);
+}
+#endif
+
+#if SYZ_EXECUTOR || __NR_syz_write_attr_fd
+static long syz_write_attr_fd(volatile long a0, volatile long a1, volatile long a2, volatile long a3)
+{
+        // syz_write_attr_fd(..., fd <resource>)
+        // a3 is a dependency-only fd resource. It forces syzkaller to schedule the
+        // corresponding open syscall before this write, but the executor must not use it.
+        (void)a3;
+        return syz_write_attr_impl(a0, a1, a2);
+}
+#endif
+
 #if SYZ_EXECUTOR || __NR_syz_open_procfs
 #include <fcntl.h>
 #include <string.h>
