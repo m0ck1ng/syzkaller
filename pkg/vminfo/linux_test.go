@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/syzkaller/pkg/flatrpc"
+	"github.com/google/syzkaller/prog"
 	"github.com/google/syzkaller/sys/targets"
 	"github.com/stretchr/testify/assert"
 )
@@ -87,6 +88,104 @@ func TestLinuxSyscalls(t *testing.T) {
 			t.Errorf("feature %v is not enabled: %v", flatrpc.EnumNamesFeature[feat], info.Reason)
 		}
 	}
+}
+
+func TestUnsupportedEmptyInputGlob(t *testing.T) {
+	call := &prog.Syscall{
+		Args: []prog.Field{{
+			Type: &prog.PtrType{
+				Elem: &prog.BufferType{
+					Kind:    prog.BufferGlob,
+					SubKind: "/sys/does-not-exist",
+				},
+				ElemDir: prog.DirIn,
+			},
+		}},
+	}
+	assert.Equal(t, "glob has no matches: /sys/does-not-exist", unsupportedEmptyInputGlob(call))
+
+	call.Args[0].Type.(*prog.PtrType).Elem.(*prog.BufferType).Values = []string{"/sys/does-exist"}
+	assert.Empty(t, unsupportedEmptyInputGlob(call))
+}
+
+func TestPrepareEmptyInputGlobsForWriteAttr(t *testing.T) {
+	makeCall := func(callName, glob string) *prog.Syscall {
+		return &prog.Syscall{
+			CallName: callName,
+			Args: []prog.Field{{
+				Type: &prog.PtrType{
+					Elem: &prog.BufferType{
+						Kind:    prog.BufferGlob,
+						SubKind: glob,
+					},
+					ElemDir: prog.DirIn,
+				},
+			}},
+		}
+	}
+
+	call := makeCall("syz_write_attr", "/sys/class/net/*/mtu")
+	prepareEmptyInputGlobs(call)
+	buf := call.Args[0].Type.(*prog.PtrType).Elem.(*prog.BufferType)
+	assert.Equal(t, []string{"/sys/class/net/*/mtu"}, buf.Values)
+	assert.Empty(t, unsupportedEmptyInputGlob(call))
+
+	call = makeCall("syz_write_attr_fd", "/sys/a/*:/sys/b/*:-/sys/skip")
+	prepareEmptyInputGlobs(call)
+	buf = call.Args[0].Type.(*prog.PtrType).Elem.(*prog.BufferType)
+	assert.Equal(t, []string{"/sys/a/*", "/sys/b/*"}, buf.Values)
+
+	call = makeCall("openat", "/sys/class/net/*/mtu")
+	prepareEmptyInputGlobs(call)
+	buf = call.Args[0].Type.(*prog.PtrType).Elem.(*prog.BufferType)
+	assert.Empty(t, buf.Values)
+	assert.Equal(t, "glob has no matches: /sys/class/net/*/mtu", unsupportedEmptyInputGlob(call))
+
+	call = makeCall("syz_write_attr", "/sys/class/net/bonding_masters")
+	prepareEmptyInputGlobs(call)
+	buf = call.Args[0].Type.(*prog.PtrType).Elem.(*prog.BufferType)
+	assert.Empty(t, buf.Values)
+	assert.Equal(t, "glob has no matches: /sys/class/net/bonding_masters", unsupportedEmptyInputGlob(call))
+}
+
+func TestExtractGlobPathInfo(t *testing.T) {
+	ptr := &prog.PtrType{
+		Elem: &prog.BufferType{
+			Kind:    prog.BufferGlob,
+			SubKind: "/sys/a/*:/sys/b/*:-/sys/bad",
+			Values:  []string{"/sys/real/value"},
+		},
+		ElemDir: prog.DirIn,
+	}
+	values, ok := extractGlobValues(ptr)
+	assert.True(t, ok)
+	assert.Equal(t, []string{"/sys/real/value"}, values)
+
+	patterns, ok := extractGlobPatterns(ptr)
+	assert.True(t, ok)
+	assert.Equal(t, []string{"/sys/a/*", "/sys/b/*"}, patterns)
+
+	ptr.Elem.(*prog.BufferType).Values = nil
+	pattern, ok := extractGlobPattern(ptr)
+	assert.True(t, ok)
+	assert.Equal(t, "/sys/a/*", pattern)
+}
+
+func TestLinuxSyzWriteAttrSupportedWildcardFallback(t *testing.T) {
+	call := &prog.Syscall{
+		CallName: "syz_write_attr",
+		Args: []prog.Field{{
+			Type: &prog.PtrType{
+				Elem: &prog.BufferType{
+					Kind:    prog.BufferGlob,
+					SubKind: "/sys/class/net/*/mtu",
+					Values:  []string{"/sys/class/net/*/mtu"},
+				},
+				ElemDir: prog.DirIn,
+			},
+		}},
+	}
+	assert.Empty(t, linuxSyzWriteAttrSupported(nil, call))
 }
 
 func TestReadKVMInfo(t *testing.T) {

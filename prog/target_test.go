@@ -4,6 +4,7 @@
 package prog
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,18 +20,40 @@ func TestPopulateGlob(t *testing.T) {
 	assert.Empty(t, populateGlob("aa", map[string][]string{
 		"bb": {"c"},
 	}))
-	assert.Equal(t, populateGlob("aa", map[string][]string{
+	assert.Equal(t, []string{"d", "e"}, populateGlob("aa", map[string][]string{
 		"aa": {"d", "e"},
 		"bb": {"c"},
-	}), []string{"d", "e"})
-	assert.Equal(t, populateGlob("aa:cc", map[string][]string{
-		"aa": {"d", "e"},
-		"bb": {"c"},
-		"cc": {"f", "d"},
-	}), []string{"d", "e", "f"})
-	assert.Equal(t, populateGlob("aa:cc:-e", map[string][]string{
+	}))
+	assert.Equal(t, []string{"d", "e", "f"}, populateGlob("aa:cc", map[string][]string{
 		"aa": {"d", "e"},
 		"bb": {"c"},
 		"cc": {"f", "d"},
-	}), []string{"d", "f"})
+	}))
+	assert.Equal(t, []string{"d", "f"}, populateGlob("aa:cc:-e", map[string][]string{
+		"aa": {"d", "e"},
+		"bb": {"c"},
+		"cc": {"f", "d"},
+	}))
+}
+
+func TestEmptyGlobGenerateAndMutate(t *testing.T) {
+	target, err := GetTarget("linux", "amd64")
+	assert.NoError(t, err)
+	r := newRand(target, rand.NewSource(0))
+	s := newState(target, nil, nil)
+	typ := &BufferType{
+		TypeCommon: TypeCommon{
+			IsVarlen: true,
+		},
+		Kind: BufferGlob,
+	}
+	typ.setRef(1)
+
+	generated, _ := typ.generate(r, s, DirIn)
+	assert.Empty(t, generated.(*DataArg).Data())
+
+	arg := MakeDataArg(typ, DirIn, []byte("/tmp/not-a-glob-match"))
+	_, retry, _ := typ.mutate(r, s, arg, ArgCtx{})
+	assert.False(t, retry)
+	assert.Empty(t, arg.Data())
 }

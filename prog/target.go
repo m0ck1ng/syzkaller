@@ -444,7 +444,7 @@ func populateGlob(pattern string, globFiles map[string][]string) []string {
 		}
 	}
 	for _, tok := range parts {
-		if tok != "" && tok[0] != '-' {
+		if tok != "" && tok[0] == '-' {
 			delete(files, tok[1:])
 		}
 	}

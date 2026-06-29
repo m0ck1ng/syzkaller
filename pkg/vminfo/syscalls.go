@@ -61,9 +61,46 @@ func (ctx *checkContext) do(fileInfos []*flatrpc.FileInfo, featureInfos []*flatr
 	map[*prog.Syscall]bool, map[*prog.Syscall]string, Features, error) {
 	sysTarget := targets.Get(ctx.cfg.Target.OS, ctx.cfg.Target.Arch)
 	ctx.fs = createVirtualFilesystem(fileInfos)
+	var globReqs []*queue.Request
+	for _, glob := range ctx.target.RequiredGlobs() {
+		req := &queue.Request{
+			Type:        flatrpc.RequestTypeGlob,
+			GlobPattern: glob,
+			ExecOpts: flatrpc.ExecOpts{
+				EnvFlags:   ctx.cfg.Sandbox,
+				SandboxArg: ctx.cfg.SandboxArg,
+			},
+			Important: true,
+		}
+		ctx.executor.Submit(req)
+		globReqs = append(globReqs, req)
+	}
+	ctx.startFeaturesCheck()
+
+	globs := make(map[string][]string)
+	for _, req := range globReqs {
+		res := req.Wait(ctx.ctx)
+		if res.Err == queue.ErrRequestAborted {
+			// Don't return an error on context cancellation.
+			return nil, nil, nil, nil
+		} else if res.Status != queue.Success {
+			return nil, nil, nil, fmt.Errorf("failed to execute glob: %w (%v)\n%s\n%s",
+				res.Err, res.Status, req.GlobPattern, res.Output)
+		}
+		globs[req.GlobPattern] = res.GlobFiles()
+	}
+	ctx.target.UpdateGlobs(globs)
+
+	enabled := make(map[*prog.Syscall]bool)
+	disabled := make(map[*prog.Syscall]string)
 	for _, id := range ctx.cfg.Syscalls {
 		call := ctx.target.Syscalls[id]
 		if call.Attrs.Disabled {
+			continue
+		}
+		prepareEmptyInputGlobs(call)
+		if reason := unsupportedEmptyInputGlob(call); reason != "" {
+			disabled[call] = reason
 			continue
 		}
 		ctx.pendingSyscalls++
@@ -91,43 +128,6 @@ func (ctx *checkContext) do(fileInfos []*flatrpc.FileInfo, featureInfos []*flatr
 			ctx.syscalls <- syscallResult{call, reason}
 		}()
 	}
-	ctx.startFeaturesCheck()
-
-	var globReqs []*queue.Request
-	for _, glob := range ctx.target.RequiredGlobs() {
-		req := &queue.Request{
-			Type:        flatrpc.RequestTypeGlob,
-			GlobPattern: glob,
-			ExecOpts: flatrpc.ExecOpts{
-				EnvFlags:   ctx.cfg.Sandbox,
-				SandboxArg: ctx.cfg.SandboxArg,
-			},
-			Important: true,
-		}
-		ctx.executor.Submit(req)
-		globReqs = append(globReqs, req)
-	}
-
-	// Up to this point we submit all requests (start submitting goroutines),
-	// so that all requests execute in parallel. After this point we wait
-	// for request completion and handle results.
-
-	globs := make(map[string][]string)
-	for _, req := range globReqs {
-		res := req.Wait(ctx.ctx)
-		if res.Err == queue.ErrRequestAborted {
-			// Don't return an error on context cancellation.
-			return nil, nil, nil, nil
-		} else if res.Status != queue.Success {
-			return nil, nil, nil, fmt.Errorf("failed to execute glob: %w (%v)\n%s\n%s",
-				res.Err, res.Status, req.GlobPattern, res.Output)
-		}
-		globs[req.GlobPattern] = res.GlobFiles()
-	}
-	ctx.target.UpdateGlobs(globs)
-
-	enabled := make(map[*prog.Syscall]bool)
-	disabled := make(map[*prog.Syscall]string)
 	for i := 0; i < ctx.pendingSyscalls; i++ {
 		res := <-ctx.syscalls
 		if res.reason == "" {
@@ -138,6 +138,21 @@ func (ctx *checkContext) do(fileInfos []*flatrpc.FileInfo, featureInfos []*flatr
 	}
 	features, err := ctx.finishFeatures(featureInfos)
 	return enabled, disabled, features, err
+}
+
+func unsupportedEmptyInputGlob(call *prog.Syscall) string {
+	var reason string
+	prog.ForeachCallType(call, func(typ prog.Type, ctx *prog.TypeCtx) {
+		if reason != "" || ctx.Dir == prog.DirOut {
+			return
+		}
+		buf, ok := typ.(*prog.BufferType)
+		if !ok || buf.Kind != prog.BufferGlob || len(buf.Values) != 0 {
+			return
+		}
+		reason = fmt.Sprintf("glob has no matches: %v", buf.SubKind)
+	})
+	return reason
 }
 
 func (ctx *checkContext) rootCanOpen(file string) string {

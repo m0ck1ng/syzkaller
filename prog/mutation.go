@@ -427,7 +427,7 @@ func (t *BufferType) mutate(r *randGen, s *state, arg Arg, ctx ArgCtx) (calls []
 		if len(t.Values) != 0 {
 			a.data = r.randString(s, t)
 		} else {
-			a.data = []byte(r.filename(s, t))
+			a.data = nil
 		}
 	case BufferText:
 		data := append([]byte{}, a.Data()...)

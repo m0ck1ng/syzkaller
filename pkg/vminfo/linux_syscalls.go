@@ -6,7 +6,6 @@ package vminfo
 import (
 	"bytes"
 	"fmt"
-	"math/rand"
 	"os"
 	"regexp"
 	"strconv"
@@ -344,34 +343,100 @@ func linuxSyzWriteAttrSupported(ctx *checkContext, call *prog.Syscall) string {
 	if fname, ok := extractStringConst(call.Args[0].Type, call.Attrs.Automatic); ok {
 		return linuxSyzWriteAttrCheckPath(ctx, fname)
 	}
+	if values, ok := extractGlobValues(call.Args[0].Type); ok && len(values) != 0 {
+		for _, fname := range values {
+			if strings.Contains(fname, "*") {
+				// Wildcard-backed sysfs attributes can legitimately appear only after
+				// other fuzzing actions create/register the backing objects. Keep such
+				// calls enabled and let the executor resolve the pattern at runtime.
+				return ""
+			}
+		}
+		return linuxSyzWriteAttrCheckPaths(ctx, values)
+	}
 	if fname, ok := extractGlobPattern(call.Args[0].Type); ok {
 		return linuxSyzWriteAttrCheckPath(ctx, fname)
 	}
 	return "cannot extract sysfs path"
 }
 
-// extractGlobPattern returns a random (include) pattern from a ptr[in, glob[...]] argument.
-func extractGlobPattern(typ prog.Type) (string, bool) {
+func prepareEmptyInputGlobs(call *prog.Syscall) {
+	switch call.CallName {
+	case "syz_write_attr", "syz_write_attr_fd":
+	default:
+		return
+	}
+	prog.ForeachCallType(call, func(typ prog.Type, ctx *prog.TypeCtx) {
+		if ctx.Dir == prog.DirOut {
+			return
+		}
+		ptr, ok := typ.(*prog.PtrType)
+		if !ok {
+			return
+		}
+		buf, ok := ptr.Elem.(*prog.BufferType)
+		if !ok || buf.Kind != prog.BufferGlob || len(buf.Values) != 0 {
+			return
+		}
+		patterns := globIncludePatterns(buf.SubKind)
+		if len(patterns) == 0 {
+			return
+		}
+		for _, pattern := range patterns {
+			if strings.Contains(pattern, "*") {
+				buf.Values = append([]string(nil), patterns...)
+				return
+			}
+		}
+	})
+}
+
+func extractGlobValues(typ prog.Type) ([]string, bool) {
 	ptr, ok := typ.(*prog.PtrType)
 	if !ok {
-		return "", false
+		return nil, false
 	}
 	buf, ok := ptr.Elem.(*prog.BufferType)
 	if !ok || buf.Kind != prog.BufferGlob {
+		return nil, false
+	}
+	return buf.Values, true
+}
+
+func extractGlobPatterns(typ prog.Type) ([]string, bool) {
+	ptr, ok := typ.(*prog.PtrType)
+	if !ok {
+		return nil, false
+	}
+	buf, ok := ptr.Elem.(*prog.BufferType)
+	if !ok || buf.Kind != prog.BufferGlob {
+		return nil, false
+	}
+	patterns := globIncludePatterns(buf.SubKind)
+	if len(patterns) == 0 {
+		return nil, false
+	}
+	return patterns, true
+}
+
+// extractGlobPattern returns the first include pattern from a ptr[in, glob[...]] argument.
+// If glob values were already populated, callers should prefer extractGlobValues.
+func extractGlobPattern(typ prog.Type) (string, bool) {
+	patterns, ok := extractGlobPatterns(typ)
+	if !ok {
 		return "", false
 	}
-	// SubKind holds the raw pattern, e.g. "/sys/fs/f2fs/*/blkzone_alloc_policy"
-	// or "/sys/**/*:-/sys/power/state" (include:exclude form); collect all include tokens.
+	return patterns[0], true
+}
+
+func globIncludePatterns(spec string) []string {
 	var includes []string
-	for _, tok := range strings.Split(buf.SubKind, ":") {
+	for _, tok := range strings.Split(spec, ":") {
 		if tok != "" && tok[0] != '-' {
 			includes = append(includes, tok)
 		}
 	}
-	if len(includes) == 0 {
-		return "", false
-	}
-	return includes[rand.Intn(len(includes))], true
+	return includes
 }
 
 // linuxSyzWriteAttrCheckPath checks reachability of a sysfs path or pattern.
@@ -387,6 +452,24 @@ func linuxSyzWriteAttrCheckPath(ctx *checkContext, fname string) string {
 		return ctx.canOpen(dir)
 	}
 	return ctx.canWrite(fname)
+}
+
+func linuxSyzWriteAttrCheckPaths(ctx *checkContext, fnames []string) string {
+	const maxChecks = 8
+	if len(fnames) == 0 {
+		return "glob has no matches"
+	}
+	limit := min(len(fnames), maxChecks)
+	reason := linuxSyzWriteAttrCheckPath(ctx, fnames[0])
+	if reason == "" {
+		return ""
+	}
+	for _, fname := range fnames[1:limit] {
+		if reason = linuxSyzWriteAttrCheckPath(ctx, fname); reason == "" {
+			return ""
+		}
+	}
+	return reason
 }
 
 func linuxRequireKernel(ctx *checkContext, major, minor int) string {

@@ -97,10 +97,11 @@ func createSuccessfulResults(source queue.Source, stop chan struct{}) {
 			continue
 		}
 		count++
-		if count > 1000 {
+		if count > 5000 {
 			// This is just a sanity check that we don't do something stupid accidentally.
 			// If it grows above the limit intentionally, the limit can be increased.
-			// Currently we have 641 (when we failed to properly dedup syscall tests, it was 4349).
+			// Linux syscall checks now also resolve sysfs globs up front, so the request
+			// count can exceed the previous lower limit.
 			panic("too many test programs")
 		}
 		res := &queue.Result{
@@ -117,7 +118,7 @@ func createSuccessfulResults(source queue.Source, stop chan struct{}) {
 				})
 			}
 		case flatrpc.RequestTypeGlob:
-			res.Output = []byte("/some/file\n")
+			res.Output = []byte("/some/file\x00")
 		}
 		req.Done(res)
 	}
