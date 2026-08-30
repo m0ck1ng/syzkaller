@@ -51,8 +51,14 @@ rest of the type-options are type-specific:
 	(e.g. "/sys/" or "/sys/**/*"),
 	or include exclude glob too (e.g. "/sys/**/*:-/sys/power/state")
 "fmt": a string representation of an integer (not zero-terminated), type-options:
-	format (one of "dec", "hex", "oct") and the value (a resource, int, flags or proc)
+	format (one of "dec", "hex", "oct", "dec_signed") and the value (a resource, int, flags or proc)
 	the resulting data is always fixed-size (formatted as "%020llu", "0x%016llx" or "%023llo", respectively)
+	"dec_signed" formats the value as a signed decimal ("%020lld", 20 bytes including the sign);
+	the other formats treat the value as unsigned
+"fmtnopad": like "fmt" but without zero-padding, type-options:
+	format (one of "dec", "hex", "oct", "dec_signed") and the value (a resource, int, flags or proc)
+	the slot size is the same as "fmt" (20/18/23 bytes), the formatted value is written
+	left-aligned and the remainder of the slot is zero-filled
 "len": length of another field (for array it is number of elements), type-options:
 	argname of the object
 "bytesize": similar to "len", but always denotes the size in bytes, type-options:

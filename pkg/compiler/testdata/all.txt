@@ -336,6 +336,14 @@ struct$fmt0 {
 
 flags_with_one_value = 0
 
+# fmtnopad / dec_signed.
+
+foo_fmtnopad0(a ptr[in, fmtnopad[dec, int32[0:100]]])
+foo_fmtnopad1(a ptr[in, fmtnopad[hex, int64]])
+foo_fmtnopad2(a ptr[in, fmtnopad[oct, int16]])
+foo_fmtdec0(a ptr[in, fmt[dec_signed, int32]])
+foo_fmtdec1(a ptr[in, fmtnopad[dec_signed, int32]])
+
 # Syscall attributes.
 
 fsck_test() (fsck["fsck.test -n"])
