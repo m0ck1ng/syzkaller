@@ -164,12 +164,18 @@ func (v *Value) Clone() Expression {
 
 type BinaryFormat int
 
+// Values must match binary_format_* constants in executor/executor.cc.
 const (
 	FormatNative BinaryFormat = iota
 	FormatBigEndian
 	FormatStrDec
 	FormatStrHex
 	FormatStrOct
+	FormatStrDecSigned
+	FormatStrDecNoPad
+	FormatStrHexNoPad
+	FormatStrOctNoPad
+	FormatStrDecNoPadSigned
 )
 
 type Type interface {

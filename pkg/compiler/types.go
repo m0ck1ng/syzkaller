@@ -824,7 +824,7 @@ var typeArgStringFlags = &typeArg{
 }
 
 var typeFmt = &typeDesc{
-	Names:        []string{"fmt"},
+	Names:        []string{"fmt", "fmtnopad"},
 	CanBeTypedef: true,
 	CantBeOpt:    true,
 	CantBeOut:    true,
@@ -843,45 +843,42 @@ var typeFmt = &typeDesc{
 		}
 	},
 	Gen: func(comp *compiler, t *ast.Type, args []*ast.Type, base prog.IntTypeCommon) prog.Type {
-		var format prog.BinaryFormat
 		var size uint64
 		switch args[0].Ident {
-		case "dec":
-			format = prog.FormatStrDec
+		case "dec", "dec_signed":
 			size = 20
 		case "hex":
-			format = prog.FormatStrHex
 			size = 18
 		case "oct":
-			format = prog.FormatStrOct
 			size = 23
 		}
+		noPad := t.Ident == "fmtnopad"
 		typ := comp.genType(args[1], comp.ptrSize)
 		switch t := typ.(type) {
 		case *prog.ResourceType:
-			t.ArgFormat = format
+			t.ArgFormat = fmtArgFormat(args[0].Ident, noPad)
 			t.TypeSize = size
 			t.TypeAlign = 1
 		case *prog.IntType:
-			t.ArgFormat = format
+			t.ArgFormat = fmtArgFormat(args[0].Ident, noPad)
 			t.TypeSize = size
 			t.TypeAlign = 1
 		case *prog.LenType:
-			t.ArgFormat = format
+			t.ArgFormat = fmtArgFormat(args[0].Ident, noPad)
 			t.TypeSize = size
 			t.TypeAlign = 1
 		case *prog.FlagsType:
-			t.ArgFormat = format
+			t.ArgFormat = fmtArgFormat(args[0].Ident, noPad)
 			t.TypeSize = size
 			t.TypeAlign = 1
 		case *prog.ProcType:
-			t.ArgFormat = format
+			t.ArgFormat = fmtArgFormat(args[0].Ident, noPad)
 			t.TypeSize = size
 			t.TypeAlign = 1
 		case *prog.ConstType:
 			// We don't allow fmt[const] directly, but flags with only 1 value
 			// are transformed to ConstType.
-			t.ArgFormat = format
+			t.ArgFormat = fmtArgFormat(args[0].Ident, noPad)
 			t.TypeSize = size
 			t.TypeAlign = 1
 		default:
@@ -891,8 +888,37 @@ var typeFmt = &typeDesc{
 	},
 }
 
+// fmtArgFormat returns the executor binary format for a string-formatted integer.
+// noPad: fmtnopad.
+func fmtArgFormat(format string, noPad bool) prog.BinaryFormat {
+	switch format {
+	case "dec":
+		if noPad {
+			return prog.FormatStrDecNoPad
+		}
+		return prog.FormatStrDec
+	case "hex":
+		if noPad {
+			return prog.FormatStrHexNoPad
+		}
+		return prog.FormatStrHex
+	case "oct":
+		if noPad {
+			return prog.FormatStrOctNoPad
+		}
+		return prog.FormatStrOct
+	case "dec_signed":
+		if noPad {
+			return prog.FormatStrDecNoPadSigned
+		}
+		return prog.FormatStrDecSigned
+	default:
+		panic(fmt.Sprintf("unexpected format: %v", format))
+	}
+}
+
 var typeFmtFormat = &typeArg{
-	Names: []string{"dec", "hex", "oct"},
+	Names: []string{"dec", "hex", "oct", "dec_signed"},
 	Kind:  kindIdent,
 }
 
