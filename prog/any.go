@@ -204,6 +204,16 @@ func (target *Target) squashConst(arg *ConstArg, elems *[]Arg) {
 		data = []byte(fmt.Sprintf("0x%016x", v))
 	case FormatStrOct:
 		data = []byte(fmt.Sprintf("%023o", v))
+	case FormatStrDecSigned:
+		data = []byte(fmt.Sprintf("%020d", int64(v)))
+	case FormatStrDecNoPad:
+		data = padConstData([]byte(fmt.Sprintf("%v", v)), arg.Size())
+	case FormatStrHexNoPad:
+		data = padConstData([]byte(fmt.Sprintf("0x%x", v)), arg.Size())
+	case FormatStrOctNoPad:
+		data = padConstData([]byte(fmt.Sprintf("0%o", v)), arg.Size())
+	case FormatStrDecNoPadSigned:
+		data = padConstData([]byte(fmt.Sprintf("%d", int64(v))), arg.Size())
 	default:
 		panic(fmt.Sprintf("unknown binary format: %v", bf))
 	}
@@ -212,6 +222,15 @@ func (target *Target) squashConst(arg *ConstArg, elems *[]Arg) {
 	}
 	elem := target.ensureDataElem(elems)
 	elem.data = append(elem.Data(), data...)
+}
+
+// padConstData zero-fills data to size for nopad formats. The executor's
+// copyin zeroes the fixed-size slot before printing, so trailing bytes are NUL.
+func padConstData(data []byte, size uint64) []byte {
+	if uint64(len(data)) > size {
+		panic(fmt.Sprintf("formatted value of size %v does not fit into %v", len(data), size))
+	}
+	return append(data, make([]byte, size-uint64(len(data)))...)
 }
 
 func (target *Target) squashResult(arg *ResultArg, elems *[]Arg) {

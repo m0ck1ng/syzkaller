@@ -509,6 +509,31 @@ func (ctx *context) copyinVal(w *bytes.Buffer, addr, size uint64, val string, bf
 			panic("bad strdec size")
 		}
 		fmt.Fprintf(w, "\tNONFAILING(sprintf((char*)0x%x, \"%%023llo\", (long long)%v));\n", addr, val)
+	case prog.FormatStrDecSigned:
+		if size != 20 {
+			panic("bad strdec size")
+		}
+		fmt.Fprintf(w, "\tNONFAILING(sprintf((char*)0x%x, \"%%020lld\", (long long)%v));\n", addr, val)
+	case prog.FormatStrDecNoPad:
+		if size != 20 {
+			panic("bad strdec size")
+		}
+		fmt.Fprintf(w, "\tNONFAILING(memset((char*)0x%x, 0, 20));\n\tNONFAILING(sprintf((char*)0x%x, \"%%llu\", (long long)%v));\n", addr, addr, val)
+	case prog.FormatStrDecNoPadSigned:
+		if size != 20 {
+			panic("bad strdec size")
+		}
+		fmt.Fprintf(w, "\tNONFAILING(memset((char*)0x%x, 0, 20));\n\tNONFAILING(sprintf((char*)0x%x, \"%%lld\", (long long)%v));\n", addr, addr, val)
+	case prog.FormatStrHexNoPad:
+		if size != 18 {
+			panic("bad strhex size")
+		}
+		fmt.Fprintf(w, "\tNONFAILING(memset((char*)0x%x, 0, 18));\n\tNONFAILING(sprintf((char*)0x%x, \"0x%%llx\", (long long)%v));\n", addr, addr, val)
+	case prog.FormatStrOctNoPad:
+		if size != 23 {
+			panic("bad stroct size")
+		}
+		fmt.Fprintf(w, "\tNONFAILING(memset((char*)0x%x, 0, 23));\n\tNONFAILING(sprintf((char*)0x%x, \"0%%llo\", (long long)%v));\n", addr, addr, val)
 	default:
 		panic("unknown binary format")
 	}

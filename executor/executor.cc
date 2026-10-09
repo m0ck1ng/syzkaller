@@ -320,6 +320,11 @@ const uint64 binary_format_bigendian = 1;
 const uint64 binary_format_strdec = 2;
 const uint64 binary_format_strhex = 3;
 const uint64 binary_format_stroct = 4;
+const uint64 binary_format_strdec_signed = 5;
+const uint64 binary_format_strdec_nopad = 6;
+const uint64 binary_format_strhex_nopad = 7;
+const uint64 binary_format_stroct_nopad = 8;
+const uint64 binary_format_strdec_nopad_signed = 9;
 
 const uint64 no_copyout = -1;
 
@@ -1692,6 +1697,35 @@ void copyin(char* addr, uint64 val, uint64 size, uint64 bf, uint64 bf_off, uint6
 		if (size != 23)
 			failmsg("bad stroct size", "size=%llu", size);
 		NONFAILING(sprintf((char*)addr, "%023llo", val));
+		break;
+	case binary_format_strdec_signed:
+		if (size != 20)
+			failmsg("bad strdec size", "size=%llu", size);
+		NONFAILING(sprintf((char*)addr, "%020lld", (long long)val));
+		break;
+	case binary_format_strdec_nopad:
+		if (size != 20)
+			failmsg("bad strdec size", "size=%llu", size);
+		NONFAILING(memset((char*)addr, 0, size));
+		NONFAILING(sprintf((char*)addr, "%llu", val));
+		break;
+	case binary_format_strdec_nopad_signed:
+		if (size != 20)
+			failmsg("bad strdec size", "size=%llu", size);
+		NONFAILING(memset((char*)addr, 0, size));
+		NONFAILING(sprintf((char*)addr, "%lld", (long long)val));
+		break;
+	case binary_format_strhex_nopad:
+		if (size != 18)
+			failmsg("bad strhex size", "size=%llu", size);
+		NONFAILING(memset((char*)addr, 0, size));
+		NONFAILING(sprintf((char*)addr, "0x%llx", val));
+		break;
+	case binary_format_stroct_nopad:
+		if (size != 23)
+			failmsg("bad stroct size", "size=%llu", size);
+		NONFAILING(memset((char*)addr, 0, size));
+		NONFAILING(sprintf((char*)addr, "0%llo", val));
 		break;
 	default:
 		failmsg("unknown binary format", "format=%llu", bf);
